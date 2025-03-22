@@ -2,14 +2,15 @@ import pandas as pd
 import streamlit as st
 from prophet import Prophet
 import matplotlib.pyplot as plt
+from io import BytesIO
 from datetime import datetime
-from pandas.tseries.offsets import MonthEnd
-import io
 
-st.set_page_config(page_title="Prognoza sprzedaży", layout="centered")
+st.set_page_config(page_title="Prognoza sprzedaży", layout="wide")
 st.title("📈 Prognoza sprzedaży")
 
+# 📂 Domyślna baza danych
 DEFAULT_CSV_PATH = "data/2023_sprzedaz_b2b.csv"
+
 uploaded_file = st.file_uploader("📂 Wgraj plik CSV z danymi sprzedaży (lub użyj domyślnego)")
 
 if uploaded_file:
@@ -18,7 +19,7 @@ else:
     df = pd.read_csv(DEFAULT_CSV_PATH, sep=';')
     st.info("📌 Użyto domyślnej bazy danych.")
 
-# Czyszczenie danych
+# 🔧 Czyszczenie danych
 df['ilosc'] = pd.to_numeric(df['ilosc'], errors='coerce')
 df['wartosc_netto_pln'] = (
     df['wartosc_netto_pln']
@@ -30,16 +31,17 @@ df['wartosc_netto_pln'] = (
 df['wartosc_netto_pln'] = pd.to_numeric(df['wartosc_netto_pln'], errors='coerce')
 df = df[(df['ilosc'] > 0) & (df['wartosc_netto_pln'] > 0)]
 
-# Przeliczenia
+# ✅ Przeliczenie i zaokrąglenia
 df['cena_jednostkowa'] = df['wartosc_netto_pln'] / df['ilosc']
 df['wartosc_netto_pln'] = (df['ilosc'] * df['cena_jednostkowa']).round(2)
 df['ilosc'] = df['ilosc'].round(0).astype('Int64')
+
 df['data'] = pd.to_datetime(
     df['Rok_data_sprzedazy'].astype(str) + '-' +
     df['Miesiac_data_sprzedazy'].astype(str).str.zfill(2) + '-01'
 )
 
-# Tryb działania
+# 🔘 Tryby
 tryb_prognozy = st.radio("📌 Tryb prognozy:", [
     "Zbiorcza tabela",
     "Szczegółowa (wykresy per SKU)"
@@ -47,8 +49,8 @@ tryb_prognozy = st.radio("📌 Tryb prognozy:", [
 
 st.subheader("🎛️ Filtry danych")
 
-# Kategorie
-wszystkie_kategorie = sorted(df['Kategoria_Produktu'].unique())
+# 🏷️ Kategorie
+wszystkie_kategorie = sorted(df['Kategoria_Produktu'].dropna().unique())
 zaznacz_kategorie = st.checkbox("✅ Zaznacz wszystkie kategorie", value=True)
 with st.expander("🏷️ Wybierz kategorie produktów", expanded=False):
     wybrane_kategorie = st.multiselect(
@@ -57,8 +59,8 @@ with st.expander("🏷️ Wybierz kategorie produktów", expanded=False):
     )
 df_filtered = df[df['Kategoria_Produktu'].isin(wybrane_kategorie)]
 
-# SKU
-wszystkie_sku = sorted(df_filtered['sku'].unique())
+# 📦 SKU
+wszystkie_sku = sorted(df_filtered['sku'].dropna().unique())
 zaznacz_sku = st.checkbox("✅ Zaznacz wszystkie SKU", value=True)
 with st.expander("📦 Wybierz produkty (SKU)", expanded=False):
     wybrane_sku = st.multiselect(
@@ -66,6 +68,16 @@ with st.expander("📦 Wybierz produkty (SKU)", expanded=False):
         default=wszystkie_sku if zaznacz_sku else []
     )
 df_filtered = df_filtered[df_filtered['sku'].isin(wybrane_sku)]
+
+# 👤 Nabywcy
+wszyscy_nabywcy = sorted(df_filtered['nabywca'].dropna().unique())
+zaznacz_nabywcow = st.checkbox("✅ Zaznacz wszystkich nabywców", value=True)
+with st.expander("👤 Wybierz nabywców", expanded=False):
+    wybrani_nabywcy = st.multiselect(
+        "Nabywcy:", wszyscy_nabywcy,
+        default=wszyscy_nabywcy if zaznacz_nabywcow else []
+    )
+df_filtered = df_filtered[df_filtered['nabywca'].isin(wybrani_nabywcy)]
 
 agregat = st.radio("📊 Prognozuj według:", ['ilosc', 'wartosc_netto_pln'])
 miesiace = st.slider("📅 Na ile miesięcy prognoza?", 1, 12, 3)
@@ -76,6 +88,7 @@ if tryb_prognozy == "Zbiorcza tabela":
         "Suma prognozy per SKU",
         "Prognoza miesięczna per SKU"
     ])
+
     tabela_sumaryczna = []
 
     for sku in wybrane_sku:
@@ -94,6 +107,7 @@ if tryb_prognozy == "Zbiorcza tabela":
         next_year = last_date.year + 1
         future_dates = pd.date_range(start=f"{next_year}-01-01", periods=miesiace, freq='MS')
         future = pd.DataFrame({'ds': future_dates})
+
         forecast = model.predict(future)
         forecast[['yhat', 'yhat_lower', 'yhat_upper']] = forecast[['yhat', 'yhat_lower', 'yhat_upper']].clip(lower=0)
 
@@ -114,55 +128,44 @@ if tryb_prognozy == "Zbiorcza tabela":
 
     if podtryb == "Suma prognozy per SKU":
         df_wynik = pd.DataFrame(tabela_sumaryczna)
+        suma_all = df_wynik[['Prognoza', 'Min', 'Max']].sum()
+        suma_row = pd.DataFrame([{
+            'SKU': 'SUMA',
+            'Prognoza': suma_all['Prognoza'],
+            'Min': suma_all['Min'],
+            'Max': suma_all['Max']
+        }])
+        df_wynik = pd.concat([df_wynik, suma_row], ignore_index=True)
 
-        sortuj_po_nabywcy = st.checkbox("🔠 Sortuj po nabywcy (jeśli dotyczy)", value=False)
-        if sortuj_po_nabywcy and 'nabywca' in df_wynik.columns:
-            df_wynik = df_wynik.sort_values("nabywca")
-
-        if all(col in df_wynik.columns for col in ['Prognoza', 'Min', 'Max']):
-            suma_all = df_wynik[['Prognoza', 'Min', 'Max']].sum()
-            suma_row = pd.DataFrame([{
-                'SKU': 'SUMA',
-                'Prognoza': suma_all['Prognoza'],
-                'Min': suma_all['Min'],
-                'Max': suma_all['Max']
-            }])
-            df_wynik = pd.concat([df_wynik, suma_row], ignore_index=True)
-
-            if agregat == 'ilosc':
-                df_wynik[['Prognoza', 'Min', 'Max']] = df_wynik[['Prognoza', 'Min', 'Max']].round(0).astype('Int64')
-                fmt = '{:,.0f}'
-            else:
-                df_wynik[['Prognoza', 'Min', 'Max']] = df_wynik[['Prognoza', 'Min', 'Max']].round(2)
-                fmt = '{:,.2f}'
-
-            def highlight_suma(row):
-                return ['background-color: #f0f0f0; font-weight: bold' if row['SKU'] == 'SUMA' else '' for _ in row]
-
-            st.dataframe(df_wynik.style.apply(highlight_suma, axis=1).format({
-                'Prognoza': fmt, 'Min': fmt, 'Max': fmt
-            }))
-
-            # 📤 Eksport do Excel
-            buffer = io.BytesIO()
-            with pd.ExcelWriter(buffer, engine='xlsxwriter') as writer:
-                df_wynik.to_excel(writer, sheet_name='Prognoza', index=False)
-                writer.close()
-
-            st.download_button(
-                label="📥 Pobierz prognozę jako Excel",
-                data=buffer,
-                file_name="prognoza_sprzedazy.xlsx",
-                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-            )
+        if agregat == 'ilosc':
+            df_wynik[['Prognoza', 'Min', 'Max']] = df_wynik[['Prognoza', 'Min', 'Max']].round(0).astype('Int64')
+            fmt = '{:,.0f}'
         else:
-            st.warning("⚠️ Brak danych do wyświetlenia sumy prognozy.")
+            df_wynik[['Prognoza', 'Min', 'Max']] = df_wynik[['Prognoza', 'Min', 'Max']].round(2)
+            fmt = '{:,.2f}'
+
+        def highlight_suma(row):
+            return ['background-color: #f0f0f0; font-weight: bold' if row['SKU'] == 'SUMA' else '' for _ in row]
+
+        st.dataframe(df_wynik.style.apply(highlight_suma, axis=1).format({
+            'Prognoza': fmt, 'Min': fmt, 'Max': fmt
+        }))
+
+        # 📤 Export
+        buffer = BytesIO()
+        df_wynik.to_excel(buffer, index=False, engine='openpyxl')
+        st.download_button("⬇️ Pobierz jako Excel", buffer.getvalue(), file_name="prognoza_sumaryczna.xlsx")
+
     else:
         df_prognoza = pd.concat(tabela_sumaryczna, ignore_index=True)
         df_prognoza[['Prognoza', 'Min', 'Max']] = df_prognoza[['Prognoza', 'Min', 'Max']].round(2)
         st.dataframe(df_prognoza)
 
-# 📊 Szczegółowe wykresy
+        buffer = BytesIO()
+        df_prognoza.to_excel(buffer, index=False, engine='openpyxl')
+        st.download_button("⬇️ Pobierz jako Excel", buffer.getvalue(), file_name="prognoza_miesieczna.xlsx")
+
+# 📊 SZCZEGÓŁOWE WYKRESY
 elif tryb_prognozy == "Szczegółowa (wykresy per SKU)":
     st.subheader("📉 Prognozy szczegółowe")
 
@@ -183,6 +186,7 @@ elif tryb_prognozy == "Szczegółowa (wykresy per SKU)":
         next_year = last_date.year + 1
         future_dates = pd.date_range(start=f"{next_year}-01-01", periods=miesiace, freq='MS')
         future = pd.DataFrame({'ds': future_dates})
+
         forecast = model.predict(future)
         forecast[['yhat', 'yhat_lower', 'yhat_upper']] = forecast[['yhat', 'yhat_lower', 'yhat_upper']].clip(lower=0)
 
@@ -198,10 +202,8 @@ elif tryb_prognozy == "Szczegółowa (wykresy per SKU)":
             'yhat_lower': 'Min',
             'yhat_upper': 'Max'
         })
-
         if agregat == 'ilosc':
             tabela[['Prognoza', 'Min', 'Max']] = tabela[['Prognoza', 'Min', 'Max']].round(0).astype('Int64')
         else:
             tabela[['Prognoza', 'Min', 'Max']] = tabela[['Prognoza', 'Min', 'Max']].round(2)
-
         st.dataframe(tabela)
