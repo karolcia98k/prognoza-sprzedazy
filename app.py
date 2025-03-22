@@ -119,87 +119,24 @@ if tryb_prognozy == "Zbiorcza tabela":
         if sortuj_po_nabywcy and 'nabywca' in df_wynik.columns:
             df_wynik = df_wynik.sort_values("nabywca")
 
-        suma_all = df_wynik[['Prognoza', 'Min', 'Max']].sum()
-        suma_row = pd.DataFrame([{
-            'SKU': 'SUMA',
-            'Prognoza': suma_all['Prognoza'],
-            'Min': suma_all['Min'],
-            'Max': suma_all['Max']
-        }])
-        df_wynik = pd.concat([df_wynik, suma_row], ignore_index=True)
+        if all(col in df_wynik.columns for col in ['Prognoza', 'Min', 'Max']):
+            suma_all = df_wynik[['Prognoza', 'Min', 'Max']].sum()
+            suma_row = pd.DataFrame([{
+                'SKU': 'SUMA',
+                'Prognoza': suma_all['Prognoza'],
+                'Min': suma_all['Min'],
+                'Max': suma_all['Max']
+            }])
+            df_wynik = pd.concat([df_wynik, suma_row], ignore_index=True)
 
-        if agregat == 'ilosc':
-            df_wynik[['Prognoza', 'Min', 'Max']] = df_wynik[['Prognoza', 'Min', 'Max']].round(0).astype('Int64')
-            fmt = '{:,.0f}'
-        else:
-            df_wynik[['Prognoza', 'Min', 'Max']] = df_wynik[['Prognoza', 'Min', 'Max']].round(2)
-            fmt = '{:,.2f}'
+            if agregat == 'ilosc':
+                df_wynik[['Prognoza', 'Min', 'Max']] = df_wynik[['Prognoza', 'Min', 'Max']].round(0).astype('Int64')
+                fmt = '{:,.0f}'
+            else:
+                df_wynik[['Prognoza', 'Min', 'Max']] = df_wynik[['Prognoza', 'Min', 'Max']].round(2)
+                fmt = '{:,.2f}'
 
-        def highlight_suma(row):
-            return ['background-color: #f0f0f0; font-weight: bold' if row['SKU'] == 'SUMA' else '' for _ in row]
+            def highlight_suma(row):
+                return ['background-color: #f0f0f0; font-weight: bold' if row['SKU'] == 'SUMA' else '' for _ in row]
 
-        st.dataframe(df_wynik.style.apply(highlight_suma, axis=1).format({
-            'Prognoza': fmt, 'Min': fmt, 'Max': fmt
-        }))
-
-        # 📤 Eksport do Excel
-        buffer = io.BytesIO()
-        with pd.ExcelWriter(buffer, engine='xlsxwriter') as writer:
-            df_wynik.to_excel(writer, sheet_name='Prognoza', index=False)
-            writer.close()
-
-        st.download_button(
-            label="📥 Pobierz prognozę jako Excel",
-            data=buffer,
-            file_name="prognoza_sprzedazy.xlsx",
-            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-        )
-
-    else:
-        df_prognoza = pd.concat(tabela_sumaryczna, ignore_index=True)
-        df_prognoza[['Prognoza', 'Min', 'Max']] = df_prognoza[['Prognoza', 'Min', 'Max']].round(2)
-        st.dataframe(df_prognoza)
-
-# 📊 Szczegółowe wykresy
-elif tryb_prognozy == "Szczegółowa (wykresy per SKU)":
-    st.subheader("📉 Prognozy szczegółowe")
-
-    for sku in wybrane_sku:
-        df_sku = df_filtered[df_filtered['sku'] == sku].copy()
-        df_agg = df_sku.groupby('data')[agregat].sum().reset_index()
-        df_agg.columns = ['ds', 'y']
-        df_agg['y'] = pd.to_numeric(df_agg['y'], errors='coerce')
-
-        if df_agg['y'].notna().sum() < 2:
-            st.warning(f"⚠️ Za mało danych dla SKU: {sku}")
-            continue
-
-        model = Prophet()
-        model.fit(df_agg)
-
-        last_date = df_agg['ds'].max()
-        next_year = last_date.year + 1
-        future_dates = pd.date_range(start=f"{next_year}-01-01", periods=miesiace, freq='MS')
-        future = pd.DataFrame({'ds': future_dates})
-        forecast = model.predict(future)
-        forecast[['yhat', 'yhat_lower', 'yhat_upper']] = forecast[['yhat', 'yhat_lower', 'yhat_upper']].clip(lower=0)
-
-        st.markdown(f"### 📦 Prognoza dla SKU: `{sku}`")
-        fig, ax = plt.subplots()
-        model.plot(forecast, ax=ax)
-        st.pyplot(fig)
-
-        tabela = forecast[['ds', 'yhat', 'yhat_lower', 'yhat_upper']].copy()
-        tabela = tabela.rename(columns={
-            'ds': 'Miesiąc',
-            'yhat': 'Prognoza',
-            'yhat_lower': 'Min',
-            'yhat_upper': 'Max'
-        })
-
-        if agregat == 'ilosc':
-            tabela[['Prognoza', 'Min', 'Max']] = tabela[['Prognoza', 'Min', 'Max']].round(0).astype('Int64')
-        else:
-            tabela[['Prognoza', 'Min', 'Max']] = tabela[['Prognoza', 'Min', 'Max']].round(2)
-
-        st.dataframe(tabela)
+            st.dataframe(df_wynik.style_
