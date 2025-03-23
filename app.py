@@ -148,7 +148,7 @@ if tryb_prognozy == "Zbiorcza tabela":
             df_wynik[['Prognoza', 'Min', 'Max']] = df_wynik[['Prognoza', 'Min', 'Max']].round(0).astype('Int64')
             fmt = '{:,.0f}'
         else:
-            df_wynik[['Prognoza', 'Min', 'Max']] = df_wynik[['Prognoza', 'Min', 'Max']].round(2)
+            df_wynik[['Prognoza', 'Min', 'Max']] = df_wynik[['Prognoza', 'Min', 'Max']].round(0).astype('Int64')
             fmt = '{:,.2f}'
 
         def highlight_suma(row):
