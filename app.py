@@ -3,28 +3,24 @@ import streamlit as st
 from prophet import Prophet
 import matplotlib.pyplot as plt
 from datetime import datetime
-from pandas.tseries.offsets import MonthEnd
 from io import BytesIO
 
 st.set_page_config(page_title="Prognoza sprzedaży", layout="centered")
 st.title("📈 Prognoza sprzedaży")
 
-# 📂 Domyślna baza danych
 DEFAULT_CSV_PATH = "data/2023_sprzedaz_b2b.csv"
 
 uploaded_file = st.file_uploader("📂 Wgraj plik CSV z danymi sprzedaży (lub użyj domyślnego)")
-
 if uploaded_file:
     df = pd.read_csv(uploaded_file, sep=';')
 else:
     df = pd.read_csv(DEFAULT_CSV_PATH, sep=';')
     st.info("📌 Użyto domyślnej bazy danych.")
 
-# 🔧 Czyszczenie danych
+# Czyszczenie danych
 df['ilosc'] = pd.to_numeric(df['ilosc'], errors='coerce')
 df['wartosc_netto_pln'] = (
-    df['wartosc_netto_pln']
-    .astype(str)
+    df['wartosc_netto_pln'].astype(str)
     .str.replace(u'\xa0', '', regex=True)
     .str.replace(' ', '', regex=False)
     .str.replace(',', '.', regex=False)
@@ -41,14 +37,7 @@ df['data'] = pd.to_datetime(
     df['Miesiac_data_sprzedazy'].astype(str).str.zfill(2) + '-01'
 )
 
-# 🇵🇱 Słownik polskich miesięcy
-miesiace_pl = {
-    1: 'styczeń', 2: 'luty', 3: 'marzec', 4: 'kwiecień',
-    5: 'maj', 6: 'czerwiec', 7: 'lipiec', 8: 'sierpień',
-    9: 'wrzesień', 10: 'październik', 11: 'listopad', 12: 'grudzień'
-}
-
-# 🔘 Tryby
+# Tryby aplikacji
 tryb_prognozy = st.radio("📌 Tryb prognozy:", [
     "Zbiorcza tabela",
     "Szczegółowa (wykresy per SKU)"
@@ -76,7 +65,7 @@ with st.expander("📦 Wybierz produkty (SKU)", expanded=False):
     )
 df_filtered = df_filtered[df_filtered['sku'].isin(wybrane_sku)]
 
-# Nabywcy
+# Nabywca
 wszyscy_nabywcy = sorted(df_filtered['nabywca'].unique())
 zaznacz_nabywcow = st.checkbox("✅ Zaznacz wszystkich nabywców", value=True)
 with st.expander("👤 Wybierz nabywców", expanded=False):
@@ -114,6 +103,7 @@ if tryb_prognozy == "Zbiorcza tabela":
         next_year = last_date.year + 1
         future_dates = pd.date_range(start=f"{next_year}-01-01", periods=miesiace, freq='MS')
         future = pd.DataFrame({'ds': future_dates})
+
         forecast = model.predict(future)
         forecast[['yhat', 'yhat_lower', 'yhat_upper']] = forecast[['yhat', 'yhat_lower', 'yhat_upper']].clip(lower=0)
 
@@ -127,10 +117,10 @@ if tryb_prognozy == "Zbiorcza tabela":
             })
         else:
             prognoza_mies = forecast[['ds', 'yhat', 'yhat_lower', 'yhat_upper']].copy()
-            prognoza_mies['Miesiąc'] = forecast['ds'].dt.month.map(miesiace_pl) + ' ' + forecast['ds'].dt.year.astype(str)
             prognoza_mies['SKU'] = sku
-            prognoza_mies = prognoza_mies[['SKU', 'Miesiąc', 'yhat', 'yhat_lower', 'yhat_upper']]
-            prognoza_mies.columns = ['SKU', 'Miesiąc', 'Prognoza', 'Min', 'Max']
+            prognoza_mies.columns = ['Miesiąc', 'Prognoza', 'Min', 'Max', 'SKU']
+            prognoza_mies['Miesiąc'] = pd.to_datetime(prognoza_mies['Miesiąc']).dt.strftime('%B %Y')
+            prognoza_mies = prognoza_mies[['SKU', 'Miesiąc', 'Prognoza', 'Min', 'Max']]
             tabela_sumaryczna.append(prognoza_mies)
 
     if podtryb == "Suma prognozy per SKU":
@@ -148,7 +138,7 @@ if tryb_prognozy == "Zbiorcza tabela":
             df_wynik[['Prognoza', 'Min', 'Max']] = df_wynik[['Prognoza', 'Min', 'Max']].round(0).astype('Int64')
             fmt = '{:,.0f}'
         else:
-            df_wynik[['Prognoza', 'Min', 'Max']] = df_wynik[['Prognoza', 'Min', 'Max']].round(0).astype('Int64')
+            df_wynik[['Prognoza', 'Min', 'Max']] = df_wynik[['Prognoza', 'Min', 'Max']].round(2)
             fmt = '{:,.2f}'
 
         def highlight_suma(row):
@@ -158,32 +148,34 @@ if tryb_prognozy == "Zbiorcza tabela":
             'Prognoza': fmt, 'Min': fmt, 'Max': fmt
         }))
 
+        # Export
         buffer = BytesIO()
         df_wynik.to_excel(buffer, index=False, engine='openpyxl')
         st.download_button(
             label="📥 Pobierz jako Excel",
             data=buffer.getvalue(),
-            file_name="prognoza_sumaryczna.xlsx",
+            file_name="prognoza_suma_per_sku.xlsx",
             mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
         )
+
     else:
         df_prognoza = pd.concat(tabela_sumaryczna, ignore_index=True)
-        df_prognoza[['Prognoza', 'Min', 'Max']] = df_prognoza[['Prognoza', 'Min', 'Max']].round(2)
+        df_prognoza[['Prognoza', 'Min', 'Max']] = df_prognoza[['Prognoza', 'Min', 'Max']].round(0).astype('Int64')
         st.dataframe(df_prognoza)
 
+        # Export
         buffer = BytesIO()
         df_prognoza.to_excel(buffer, index=False, engine='openpyxl')
         st.download_button(
-            label="📥 Pobierz prognozę miesięczną jako Excel",
+            label="📥 Pobierz jako Excel",
             data=buffer.getvalue(),
-            file_name="prognoza_miesieczna.xlsx",
+            file_name="prognoza_miesieczna_per_sku.xlsx",
             mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
         )
 
 # Szczegółowe wykresy
 elif tryb_prognozy == "Szczegółowa (wykresy per SKU)":
     st.subheader("📉 Prognozy szczegółowe")
-
     for sku in wybrane_sku:
         df_sku = df_filtered[df_filtered['sku'] == sku].copy()
         df_agg = df_sku.groupby('data')[agregat].sum().reset_index()
@@ -211,13 +203,13 @@ elif tryb_prognozy == "Szczegółowa (wykresy per SKU)":
         st.pyplot(fig)
 
         tabela = forecast[['ds', 'yhat', 'yhat_lower', 'yhat_upper']].copy()
-        tabela['Miesiąc'] = forecast['ds'].dt.month.map(miesiace_pl) + ' ' + forecast['ds'].dt.year.astype(str)
         tabela = tabela.rename(columns={
+            'ds': 'Miesiąc',
             'yhat': 'Prognoza',
             'yhat_lower': 'Min',
             'yhat_upper': 'Max'
         })
-        tabela = tabela[['Miesiąc', 'Prognoza', 'Min', 'Max']]
+        tabela['Miesiąc'] = pd.to_datetime(tabela['Miesiąc']).dt.strftime('%B %Y')
 
         if agregat == 'ilosc':
             tabela[['Prognoza', 'Min', 'Max']] = tabela[['Prognoza', 'Min', 'Max']].round(0).astype('Int64')
