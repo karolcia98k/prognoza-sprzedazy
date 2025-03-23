@@ -4,3 +4,4 @@ matplotlib
 cmdstanpy
 prophet
 xlsxwriter
+openpyxl
