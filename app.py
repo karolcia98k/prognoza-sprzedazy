@@ -56,7 +56,7 @@ tryb_prognozy = st.radio("📌 Tryb prognozy:", [
 
 st.subheader("🎛️ Filtry danych")
 
-# 🏷️ Kategorie
+# Kategorie
 wszystkie_kategorie = sorted(df['Kategoria_Produktu'].unique())
 zaznacz_kategorie = st.checkbox("✅ Zaznacz wszystkie kategorie", value=True)
 with st.expander("🏷️ Wybierz kategorie produktów", expanded=False):
@@ -66,7 +66,7 @@ with st.expander("🏷️ Wybierz kategorie produktów", expanded=False):
     )
 df_filtered = df[df['Kategoria_Produktu'].isin(wybrane_kategorie)]
 
-# 📦 SKU
+# SKU
 wszystkie_sku = sorted(df_filtered['sku'].unique())
 zaznacz_sku = st.checkbox("✅ Zaznacz wszystkie SKU", value=True)
 with st.expander("📦 Wybierz produkty (SKU)", expanded=False):
@@ -76,7 +76,7 @@ with st.expander("📦 Wybierz produkty (SKU)", expanded=False):
     )
 df_filtered = df_filtered[df_filtered['sku'].isin(wybrane_sku)]
 
-# 👤 Nabywca
+# Nabywcy
 wszyscy_nabywcy = sorted(df_filtered['nabywca'].unique())
 zaznacz_nabywcow = st.checkbox("✅ Zaznacz wszystkich nabywców", value=True)
 with st.expander("👤 Wybierz nabywców", expanded=False):
@@ -86,11 +86,10 @@ with st.expander("👤 Wybierz nabywców", expanded=False):
     )
 df_filtered = df_filtered[df_filtered['nabywca'].isin(wybrani_nabywcy)]
 
-# Parametry prognozy
 agregat = st.radio("📊 Prognozuj według:", ['ilosc', 'wartosc_netto_pln'])
 miesiace = st.slider("📅 Na ile miesięcy prognoza?", 1, 12, 3)
 
-# 🔁 ZBIORCZA TABELA
+# ZBIORCZA TABELA
 if tryb_prognozy == "Zbiorcza tabela":
     podtryb = st.radio("📋 Co chcesz zobaczyć?", [
         "Suma prognozy per SKU",
@@ -115,7 +114,6 @@ if tryb_prognozy == "Zbiorcza tabela":
         next_year = last_date.year + 1
         future_dates = pd.date_range(start=f"{next_year}-01-01", periods=miesiace, freq='MS')
         future = pd.DataFrame({'ds': future_dates})
-
         forecast = model.predict(future)
         forecast[['yhat', 'yhat_lower', 'yhat_upper']] = forecast[['yhat', 'yhat_lower', 'yhat_upper']].clip(lower=0)
 
@@ -160,22 +158,29 @@ if tryb_prognozy == "Zbiorcza tabela":
             'Prognoza': fmt, 'Min': fmt, 'Max': fmt
         }))
 
-        # Export
         buffer = BytesIO()
         df_wynik.to_excel(buffer, index=False, engine='openpyxl')
         st.download_button(
             label="📥 Pobierz jako Excel",
             data=buffer.getvalue(),
-            file_name="prognoza_suma.xlsx",
+            file_name="prognoza_sumaryczna.xlsx",
             mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
         )
-
     else:
         df_prognoza = pd.concat(tabela_sumaryczna, ignore_index=True)
         df_prognoza[['Prognoza', 'Min', 'Max']] = df_prognoza[['Prognoza', 'Min', 'Max']].round(2)
         st.dataframe(df_prognoza)
 
-# 📊 SZCZEGÓŁOWE WYKRESY
+        buffer = BytesIO()
+        df_prognoza.to_excel(buffer, index=False, engine='openpyxl')
+        st.download_button(
+            label="📥 Pobierz prognozę miesięczną jako Excel",
+            data=buffer.getvalue(),
+            file_name="prognoza_miesieczna.xlsx",
+            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+        )
+
+# Szczegółowe wykresy
 elif tryb_prognozy == "Szczegółowa (wykresy per SKU)":
     st.subheader("📉 Prognozy szczegółowe")
 
